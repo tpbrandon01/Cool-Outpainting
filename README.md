@@ -1,1 +1,1 @@
-# Sexy-Outpainting
+# Semantic-Outpainting

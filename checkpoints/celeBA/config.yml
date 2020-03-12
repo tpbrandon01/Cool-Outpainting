@@ -1,0 +1,61 @@
+MODE: 1             # 1: train, 2: test, 3: eval
+MODEL: 4            # 3:semantic model, 4:inpaint 5:deeplab_smt_joint 6:deeplab_smt_inp_joint
+MASK: 7             # 1: random block, 2: half, 3: external, 4: (external, random block), 5: (external, random block, half), 7:extrapolation mask
+NMS: 1              # 0: no non-max-suppression, 1: applies non-max-suppression on the external edges by multiplying by Canny
+SEED: 10            # random seed
+GPU: [0]            # list of gpu ids
+DEBUG: 0            # turns on debugging mode
+VERBOSE: 0          # turns on verbose mode in the output console
+HEIGHT_OUTPUT_SIZE: 256     # height output size
+WIDTH_AUGMENT_SIZE: 256     # width output size
+DEEPLAB_PRETRAINED_MODEL_PATH: 0 #checkpoints/cityscapes/DeepLab_Model/deeplab_resnet101_cityscapes_v3_lr1e-2_crop769_batch20_lastmult10_epoch260_IOU7602.pth
+BOUNDING_MODEL_GENERATOR: 0 #
+INPAINTING_MODEL_FEATURE_GENERATOR: checkpoints/cityscapes/saved_model/InpaintingModel/InpaintingModel_gen_iter_50000_only_l1.pth
+INPAINTING_MODEL_INPAINTING_GENERATOR: 0
+INPAINTING_MODEL_INPAINTING_DISCRIMINATOR: 0 #checkpoints/cityscapes/saved_model/InpaintingModel/InpaintingModel_dis_iter_150000_step6_mae_0734.pth
+
+
+TRAIN_FLIST: ../datasets/cityscapes/leftImgFine/place_ImgFine_train.flist
+VAL_FLIST: ../datasets/cityscapes/leftImgFine/place_ImgFine_val.flist
+TEST_FLIST: ../datasets/cityscapes/leftImgFine/place_ImgFine_test.flist
+
+TRAIN_SEMANTIC_FLIST: ../datasets/cityscapes/SmtFine/place_SmtFine_train.flist
+VAL_SEMANTIC_FLIST: ../datasets/cityscapes/SmtFine/place_SmtFine_val.flist
+TEST_SEMANTIC_FLIST: ../datasets/cityscapes/SmtFine/place_SmtFine_test.flist
+
+TRAIN_EDGE_FLIST: #./datasets/places2_edges_train.flist
+VAL_EDGE_FLIST: #./datasets/places2_edges_val.flist
+TEST_EDGE_FLIST: #./datasets/places2_edges_test.flist
+
+TRAIN_MASK_FLIST:  ../datasets/mask/places_mask_train.flist
+VAL_MASK_FLIST:  ../datasets/mask/places_mask_valid.flist
+TEST_MASK_FLIST:  ../datasets/mask/places_mask_test.flist
+
+LR: 0.0001                    # learning rate #model IV use 2e-5
+D2G_LR: 0.1                   # discriminator/generator learning rate ratio
+BETA1: 0.0                    # adam optimizer beta1
+BETA2: 0.9                    # adam optimizer beta2
+BATCH_SIZE: 4                 # input batch size for training
+INPUT_SIZE: 256               # input image size for training 0 for original size
+SIGMA: 2                      # standard deviation of the Gaussian filter used in Canny edge detector (0: random, -1: no edge)
+MAX_ITERS: 200001             # maximum number of iterations to train the model
+
+GAN_LOSS_ALPHA: 0.001
+WGAN_GP_LAMBDA: 10
+PRETRAIN_L1_ALPHA: 1.2
+L1_LOSS_ALPHA: 4.2
+AE_LOSS_ALPHA: 1.2
+MRF_ALPHA: 0.05
+FA_ALPHA: 0.5
+
+
+
+GAN_LOSS: nsgan               # nsgan | lsgan | hinge
+GAN_POOL_SIZE: 0              # fake images pool size
+
+SAVE_INTERVAL: 10000          # how many iterations to wait before saving model (0: never)
+SAMPLE_INTERVAL: 10000        # how many iterations to wait before sampling (0: never)
+SAMPLE_SIZE: 12               # number of images to sample
+EVAL_INTERVAL: 0              # how many iterations to wait before model evaluation (0: never)
+LOG_INTERVAL: 100             # how many iterations to wait before logging training status (0: never)
+TEST_SAMPLE_NUMBER: 20        # how many testing sample should be tested (-1: no limit)
