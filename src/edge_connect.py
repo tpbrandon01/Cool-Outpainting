@@ -4,7 +4,7 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader
 from .dataset import Dataset
-from .models import EdgeModel, SemanticModel, InpaintingModel#CourseInpaintingModel, RefinedInpaintingModel
+from .models import InpaintingModel#CourseInpaintingModel, RefinedInpaintingModel
 from .utils import Progbar, create_dir, stitch_images, imsave
 from .metrics import PSNR, EdgeAccuracy, SemanticAccuracy
 from collections import OrderedDict
@@ -35,10 +35,10 @@ class EdgeConnect():
         
         # test mode
         if self.config.MODE == 2:
-            self.test_dataset = Dataset(config, config.TEST_FLIST, config.TEST_SEMANTIC_FLIST, config.TEST_EDGE_FLIST, config.TEST_MASK_FLIST, augment=False, training=False)
+            self.test_dataset = Dataset(config, config.TEST_FLIST, augment=False, training=False)
         else:
-            self.train_dataset = Dataset(config, config.TRAIN_FLIST, config.TRAIN_SEMANTIC_FLIST, config.TRAIN_EDGE_FLIST, config.TRAIN_MASK_FLIST, augment=True, training=True)
-            self.val_dataset = Dataset(config, config.VAL_FLIST, config.VAL_SEMANTIC_FLIST, config.VAL_EDGE_FLIST, config.VAL_MASK_FLIST, augment=False, training=True)
+            self.train_dataset = Dataset(config, config.TRAIN_FLIST, augment=True, training=True)
+            self.val_dataset = Dataset(config, config.VAL_FLIST, augment=False, training=True)
             self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
 
         self.samples_path = os.path.join(config.PATH, 'samples')
@@ -87,7 +87,7 @@ class EdgeConnect():
             pass
             # self.edge_model.save()
         elif self.config.MODEL == 2:
-            self.inpaint_model.save()
+            self.inpaint_model.save(save_discri=False)
         elif self.config.MODEL == 3:
             self.inpaint_model.save()
         elif self.config.MODEL == 4:
@@ -129,10 +129,14 @@ class EdgeConnect():
                     self.inpaint_model.train()
                 elif self.config.MODEL == 4:
                     pass
-                images, semantics, unlbl_binary_mask, smt_onehs, masks = self.cuda(*items)
-                
+                images, masks, masks_information = self.cuda(*items)
+                print('images.shape:', images.shape)
+                print('masks.shape:', masks.shape)
+                print('masks_information.shape:', masks_information.shape)
+                print(masks_information)
                 # edge model
                 if model == 1:
+                    pass
                     # train
                     # outputs, gen_loss, dis_loss, logs = self.edge_model.process(images_gray, edges, masks)
 
@@ -147,17 +151,22 @@ class EdgeConnect():
                 # inpainting model
                 elif model == 2:
                     # train
-                    outputs, gen_loss, _, logs = self.inpaint_model.process_a(images, bound, masks)
+                    outputs, gen_loss, _, logs = self.inpaint_model.process_a(images, masks_information, masks)
 
+                    outputs_merged = outputs * (1 - masks) + images * masks
+                    
                     # metrics
-                    IOU = self.semanticacc(smt_onehs * (1 - masks), outputs * (1 - masks))
-                    # print('smt_onehs, outputs, masks =',smt_onehs.shape, outputs.shape, masks.shape)
-                    logs.append(('IOU', IOU.item()))
+                    psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
+
+                    masks_pixel = torch.sum((masks_information[1]-masks_information[0])*(masks_information[3]-masks_information[2]))
+                    mae = ( torch.sum(torch.abs(images - outputs_merged)) / (torch.prod(images.shape)-masks_pixel) ).float()
+                    logs.append(('psnr', psnr.item()))
+                    logs.append(('mae', mae.item()))
 
 
                     # backward
                     self.inpaint_model.backward(gen_loss)
-                    iteration = self.semantic_model.iteration
+                    iteration = self.inpaint_model.iteration
 
                 # inpainting model
                 elif model == 3:
@@ -270,7 +279,7 @@ class EdgeConnect():
                 break 
             
             with torch.no_grad():
-                elif model == 1:
+                if model == 1:
                     pass
                 elif model == 2 or model == 3:
                     outputs = self.inpaint_model(images, bounds, masks)

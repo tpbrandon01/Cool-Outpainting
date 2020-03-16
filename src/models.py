@@ -15,11 +15,10 @@ class BaseModel(nn.Module):
         self.iteration = 0
         
         os.makedirs(os.path.join(config.PATH,'saved_model', self.name), exist_ok=True)
-        os.makedirs(os.path.join(config.PATH,'saved_model', self.name, self.iteration), exist_ok=True)
+        os.makedirs(os.path.join(config.PATH,'saved_model', self.name, str(self.iteration)), exist_ok=True)
         self.load_weights_path = os.path.join(config.PATH,'saved_model', self.name)
         
-    def load(self):
-        print('Loading %s generator...' % self.name)
+    def load(self, load_discri=True):
         #Load generator model
         if len(self.config.GPU) == 1: 
             if torch.cuda.is_available():
@@ -29,6 +28,7 @@ class BaseModel(nn.Module):
                     # self.feat_generator.load_state_dict(data['feat_generator'])
                     # self.iteration = data['iteration']
                 elif self.name == 'InpaintingModel':
+                    print('Loading %s generator...' % self.name)
                     data = torch.load(self.config.INPAINTING_MODEL_GENERATOR)
                     self.feat_generator.load_state_dict(data['feat_generator'])
                     self.inp_generator.load_state_dict(data['inp_generator'])
@@ -41,7 +41,11 @@ class BaseModel(nn.Module):
                     #     print("loading inp generator revised dict name:", name)
                     #     new_state_dict_gen[name] = v
                     # self.generator.load_state_dict(new_state_dict_gen)
-                    self.iteration = data['iteration']
+                    # self.iteration = data['iteration']
+                    if load_discri == True:
+                        print('Loading %s discriminator...' % self.name)
+                        data = torch.load(self.config.INPAINTING_MODEL_DISCRIMINATOR)
+                        self.locglo_discriminator.load_state_dict(data['locglo_discriminator'])
             # self.generator.load_state_dict(data['generator'])
             # self.iteration = data['iteration']
         else:
@@ -65,55 +69,56 @@ class BaseModel(nn.Module):
         # if smt model, don't load discriminator
         
         # load discriminator only when training
-        elif self.config.MODE == 1:
-            
-            if len(self.config.GPU) == 1: 
-                if torch.cuda.is_available():
-                    if self.name == 'InpaintingModel':
-                        print('Loading %s discriminator...' % self.name)
-                        data = torch.load(self.config.INPAINTING_MODEL_DISCRIMINATOR)
-                        self.discriminator.load_state_dict(data['discriminator'])
-                        # new_state_dict_dis = OrderedDict()
-                        # for k, v in data['discriminator'].items():
-                        #     print("loading discriminator ori dict name:",k)
-                        #     name = k[7:] # remove `module.`
-                        #     print("loading model revised dict name:",name)
-                        #     new_state_dict_dis[name] = v
-                        # self.discriminator.load_state_dict(new_state_dict_dis)#,strict=False)
+        # if self.config.MODE == 1:
+        #     if len(self.config.GPU) == 1: 
+        #         if torch.cuda.is_available():
+        #             if self.name == 'InpaintingModel' and load_discri==True:
+        #                 print('Loading %s discriminator...' % self.name)
+        #                 data = torch.load(self.config.INPAINTING_MODEL_DISCRIMINATOR)
+        #                 self.locglo_discriminator.load_state_dict(data['locglo_discriminator'])
+        #                 # new_state_dict_dis = OrderedDict()
+        #                 # for k, v in data['discriminator'].items():
+        #                 #     print("loading discriminator ori dict name:",k)
+        #                 #     name = k[7:] # remove `module.`
+        #                 #     print("loading model revised dict name:",name)
+        #                 #     new_state_dict_dis[name] = v
+        #                 # self.discriminator.load_state_dict(new_state_dict_dis)#,strict=False)
                     
-            else:
-                print('Multi-GPU is not compatible!')
-                pass
-                # print("Discriminator Using Multi-GPU...")
-                # if torch.cuda.is_available():
-                #     if self.name == 'SemanticModel':
-                #         data = torch.load(self.config.SEMANTIC_MODEL_DISCRIMINATOR)
-                #     elif self.name == 'InpaintingModel':
-                #         data = torch.load(self.config.INPAINTING_MODEL_DISCRIMINATOR)
-                # lack of 'module.'
-                new_state_dict_dis = OrderedDict()
-                for k, v in data['discriminator'].items():
-                    print("loading discriminator ori dict name:",k)
-                    name = 'module.'+k # remove `module.`
-                    print("loading discriminator revised dict name:",name)
-                    new_state_dict_dis[name] = v
-                self.discriminator.load_state_dict(new_state_dict_dis, strict=False)
+        #     else:
+        #         print('Multi-GPU is not compatible!')
+        #         pass
+        #         # print("Discriminator Using Multi-GPU...")
+        #         # if torch.cuda.is_available():
+        #         #     if self.name == 'SemanticModel':
+        #         #         data = torch.load(self.config.SEMANTIC_MODEL_DISCRIMINATOR)
+        #         #     elif self.name == 'InpaintingModel':
+        #         #         data = torch.load(self.config.INPAINTING_MODEL_DISCRIMINATOR)
+        #         # lack of 'module.'
+        #         new_state_dict_dis = OrderedDict()
+        #         for k, v in data['discriminator'].items():
+        #             print("loading discriminator ori dict name:",k)
+        #             name = 'module.'+k # remove `module.`
+        #             print("loading discriminator revised dict name:",name)
+        #             new_state_dict_dis[name] = v
+        #         self.discriminator.load_state_dict(new_state_dict_dis, strict=False)
     
-    def save(self):
+    def save(self, save_discri=True):
         print('\nsaving %s...\n' % self.name)
         if self.name == 'InpaintingModel':
             torch.save({
             'iteration': self.iteration,
-            'feat_generator': self.generator.state_dict()
+            'feat_generator': self.feat_generator.state_dict(),
+            'inp_generator': self.inp_generator.state_dict()
             }, os.path.join(self.load_weights_path, self.iteration, self.name+'_gen_iter_'+str(self.iteration)+'.pth'))
-            
-            torch.save({
-            'local_discriminator': self.local_discriminator.state_dict()
-            }, os.path.join(self.load_weights_path, self.iteration, self.name+'_local_dis_iter_'+str(self.iteration)+'.pth'))
-            
-            torch.save({
-            'global_discriminator': self.global_discriminator.state_dict()
-            }, os.path.join(self.load_weights_path, self.iteration, self.name+'_global_dis_iter_'+str(self.iteration)+'.pth'))
+
+            if save_discri == True:    
+                torch.save({
+                'locglo_discriminator': self.locglo_discriminator.state_dict()
+                }, os.path.join(self.load_weights_path, self.iteration, self.name+'_locglo_dis_iter_'+str(self.iteration)+'.pth'))
+                
+                # torch.save({
+                # 'global_discriminator': self.global_discriminator.state_dict()
+                # }, os.path.join(self.load_weights_path, self.iteration, self.name+'_global_dis_iter_'+str(self.iteration)+'.pth'))
 
         elif self.name == 'BoundingModel':
             torch.save({
@@ -128,8 +133,8 @@ class InpaintingModel(BaseModel):
 
         # generator input: [rgb(3) + mask(1)]
         # discriminator input: [rgb(3)]
-        feat_generator = FeatureGenerator(out_h=config.HEIGHT_OUTPUT_SIZE, out_w=config.WIDTH_OUTPUT_SIZE)
-        inp_generator = InpaintGenerator()
+        feat_generator = FeatureGenerator(_r1=config.HEIGHT_R1,_r2=config.WIDTH_R2)
+        inp_generator = InpaintGenerator(input_ch=64*config.HEIGHT_R1*config.WIDTH_R2+4)
         locglo_discriminator =  GlobalLocalDiscriminator()
 
         # print('InpaintingModel discriminator:')
@@ -153,25 +158,25 @@ class InpaintingModel(BaseModel):
         self.add_module('adversarial_loss', adversarial_loss)
 
         self.gen_optimizer = optim.Adam(
-            params=generator.parameters(),
+            params= list(feat_generator.parameters()) + list(inp_generator.parameters()),
             lr=float(config.LR),
             betas=(config.BETA1, config.BETA2)
         )
 
         self.dis_optimizer = optim.Adam(
-            params=local_discriminator.parameters(),
+            params=locglo_discriminator.parameters(),
             lr=float(config.LR) * float(config.D2G_LR),
             betas=(config.BETA1, config.BETA2)
         )
 
-    def process_a(self, images, bounds, masks):
+    def process_a(self, images, masks_information, masks):
         self.iteration += 1
 
         # zero optimizers
         self.gen_optimizer.zero_grad()
 
         # process outputs
-        outputs = self(images, bounds, masks)
+        outputs = self(images, masks_information, masks)
 
         gen_loss = 0
         
@@ -189,7 +194,7 @@ class InpaintingModel(BaseModel):
         
         return outputs, gen_loss, logs
 
-    def process_b(self, images, bounds, masks):
+    def process_b(self, images, masks_information, masks):
         self.iteration += 1
 
         # zero optimizers
@@ -197,7 +202,7 @@ class InpaintingModel(BaseModel):
         self.dis_optimizer.zero_grad()
 
         # process outputs
-        outputs = self(images, bounds, masks)
+        outputs = self(images, masks_information, masks)
 
         gen_loss = 0
         dis_loss = 0
@@ -246,8 +251,8 @@ class InpaintingModel(BaseModel):
         
         return outputs, gen_loss, dis_loss, logs
 
-    def forward(self, images, mask_information, masks):
-        images_masked = image_cropping(images,mask_information[0],mask_information[1],mask_information[2],mask_information[3])
+    def forward(self, images, masks_information, masks):# mask_information.shape:[bs,4]
+        images_masked = image_cropping(images, masks_information)
         feat_ops = self.feat_generator(images_masked)
         outputs = self.inp_generator(feat_ops, images*masks, masks)
         return outputs

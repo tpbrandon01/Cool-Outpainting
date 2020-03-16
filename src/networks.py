@@ -56,7 +56,6 @@ class BaseNetwork(nn.Module):
 class FeatureGenerator(BaseNetwork):
     def __init__(self, _r1, _r2, init_weights=True):
         super(FeatureGenerator, self).__init__()
-        
         self._r1 = _r1
         self._r2 = _r2
         self.extractor = nn.Sequential(
@@ -96,14 +95,14 @@ class FeatureGenerator(BaseNetwork):
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
             nn.ELU(True),
 
-            nn.Upsample(scale_factor=2, mode='nearest', align_corners=True),
+            nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1),
             nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
             nn.ELU(True),
 
-            nn.Upsample(scale_factor=2, mode='nearest', align_corners=True),
+            nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1),
             nn.ELU(True)
         )
@@ -129,13 +128,13 @@ class FeatureGenerator(BaseNetwork):
 
 
 class InpaintGenerator(BaseNetwork):
-    def __init__(self, init_weights=True, alpha=0.5):
+    def __init__(self, init_weights=True, alpha=0.5, input_ch = 260):
         super(InpaintGenerator, self).__init__()
         
         self.alpha = alpha
         
         self.inpainting_gen1 = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, padding=2),
+            nn.Conv2d(in_channels=input_ch, out_channels=64, kernel_size=5, padding=2),
             nn.ELU(True),
 
             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
@@ -173,14 +172,14 @@ class InpaintGenerator(BaseNetwork):
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
             nn.ELU(True),
 
-            nn.Upsample(scale_factor=2, mode='nearest', align_corners=True),
+            nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1),
             nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
             nn.ELU(True),
 
-            nn.Upsample(scale_factor=2, mode='nearest', align_corners=True),
+            nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1),
             nn.ELU(True),
 
@@ -208,7 +207,7 @@ def subpixel(x, r1, r2):
     _w = _w0 * r2
     
     _ch = _ch0 // r1 // r2
-    x_out = torch.zeros((_bs, _ch, _h, _w)).to('cuda0')
+    x_out = torch.zeros((_bs, _ch, _h, _w)).to(x.device)
     for k in range(_ch):
         for i in range(_h):
             for j in range(_w):

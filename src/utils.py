@@ -5,33 +5,36 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-
+import torch
 
 def create_dir(dir):
     if not os.path.exists(dir):
         os.makedirs(dir)
 
-
-def create_mask(width, height, mask_width, mask_height, x=None, y=None):
-    mask = np.ones((height, width))
-    mask_x = x if x is not None else random.randint(0, width - mask_width)
-    mask_y = y if y is not None else random.randint(0, height - mask_height)
-    mask[mask_y:mask_y + mask_height, mask_x:mask_x + mask_width] = 0
-    return mask
-
-
-def create_extrapolation_mask(width, height, tp=None, dn=None, lf=None, rt=None):
+def create_extrapolation_mask(height, width, crop_pos=None):
     mask = np.zeros((height, width)) #black
-    mask_tp = height//8# tp if tp is not None else random.randint(height//32, height//16)
-    mask_dn = 7 * height//8#3 * height//4# dn if dn is not None else random.randint(15*height//16, 31*height//32)
-    mask_lf = width//8# lf if lf is not None else random.randint(width//32, width//16)
-    mask_rt = 7 * width//8# rt if rt is not None else random.randint(15*width//16, 31*width//32)
-    mask[mask_tp:mask_dn, mask_lf:mask_rt] = 1 #white
-    return mask
+    if crop_pos is None:
+        mask_tp = height//4# tp if tp is not None else random.randint(height//32, height//16)
+        mask_dn = 3 * height//4#3 * height//4# dn if dn is not None else random.randint(15*height//16, 31*height//32)
+        mask_lf = width//4# lf if lf is not None else random.randint(width//32, width//16)
+        mask_rt = 3 * width//4# rt if rt is not None else random.randint(15*width//16, 31*width//32)
+        mask[mask_tp:mask_dn, mask_lf:mask_rt] = 1 #white
+        mask_inf = np.array([mask_tp, mask_dn, mask_lf, mask_rt])
+        print('mask_inf:',mask_inf)
+    else:
+        mask[crop_pos[0]:crop_pos[1], crop_pos[2]:crop_pos[3]] = 1
+        mask_inf = np.array([crop_pos[0], crop_pos[1], crop_pos[2], crop_pos[3]])
+        print('mask_inf:',mask_inf)
+    return mask, mask_inf
 
-def image_cropping(images, up=32, bot=32, left=32, right=32): #inputs are all tensors. # images: [bs,3,256,256]
-    _, _, _h, _w = images
-    new_images = images[:,:,up:_h-bot,left:_w-right]
+def image_cropping(images, mask_inf): #inputs are all tensors. # images: [bs,3,256,256], mask_inf:[bs,4]##bug????
+    _bs, _, _h, _w = images.shape
+    print("mask_inf:",mask_inf)
+    cropped_img = []
+    for i in range(_bs):
+        cropped_img.append(images[i:i+1, :, mask_inf[i,0]:mask_inf[i,1], mask_inf[i,2]:mask_inf[i,3]])
+    
+    new_images = torch.cat((cropped_img),0)
     print("new_images.shape:", new_images.shape)
     return new_images
 
