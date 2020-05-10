@@ -5,14 +5,13 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from .dataset import Dataset
 from .models import InpaintingModel#CourseInpaintingModel, RefinedInpaintingModel
-from .utils import Progbar, create_dir, stitch_images, imsave
+from .utils import Progbar, create_dir, stitch_images, imsave, image_cropping
 from .metrics import PSNR, EdgeAccuracy, SemanticAccuracy
 from collections import OrderedDict
 from scipy.io import loadmat
 
 # from modeling.sync_batchnorm.replicate import patch_replication_callback
 # from modeling.deeplab import DeepLab
-import modeling.deeplab as deeplab
 class EdgeConnect():
     def __init__(self, config):
         self.config = config
@@ -60,14 +59,15 @@ class EdgeConnect():
         if self.config.MODEL == 1:
             pass
         if self.config.MODEL == 2:
-            if os.path.isfile(self.config.INPAINTING_MODEL_FEATURE_GENERATOR) \
-            and os.path.isfile(self.config.INPAINTING_MODEL_INPAINTING_GENERATOR):
-                self.inpaint_model.load()
+            if os.path.isfile(self.config.INPAINTING_MODEL_GENERATOR):
+                self.inpaint_model.load(load_discri=False)
         if self.config.MODEL == 3:
-            if os.path.isfile(self.config.INPAINTING_MODEL_FEATURE_GENERATOR) \
-            and os.path.isfile(self.config.INPAINTING_MODEL_INPAINTING_GENERATOR) \
-            and os.path.isfile(self.config.INPAINTING_MODEL_INPAINTING_DISCRIMINATOR):
+            if os.path.isfile(self.config.INPAINTING_MODEL_GENERATOR) \
+            and os.path.isfile(self.config.INPAINTING_MODEL_DISCRIMINATOR):
                 self.inpaint_model.load()
+            elif os.path.isfile(self.config.INPAINTING_MODEL_GENERATOR):
+                self.inpaint_model.load(load_discri=False)
+            
         elif self.config.MODEL == 4:
             pass
             # if os.path.isfile(self.config.INPAINTING_MODEL_GENERATOR):# and os.path.isfile(self.config.INPAINTING_MODEL_DISCRIMINATOR):
@@ -130,10 +130,11 @@ class EdgeConnect():
                 elif self.config.MODEL == 4:
                     pass
                 images, masks, masks_information = self.cuda(*items)
-                print('images.shape:', images.shape)
-                print('masks.shape:', masks.shape)
-                print('masks_information.shape:', masks_information.shape)
-                print(masks_information)
+                
+                # print('images.shape:', images.shape)# [4, 3, 256, 256]
+                # print('masks.shape:', masks.shape)# [4, 1, 256, 256]
+                # print('masks_information.shape:', masks_information.shape)# [4, 4]
+                # print(masks_information)
                 # edge model
                 if model == 1:
                     pass
@@ -151,15 +152,17 @@ class EdgeConnect():
                 # inpainting model
                 elif model == 2:
                     # train
-                    outputs, gen_loss, _, logs = self.inpaint_model.process_a(images, masks_information, masks)
+                    images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                    outputs, gen_loss, logs = self.inpaint_model.process_a(images, images_masked, masks)
 
                     outputs_merged = outputs * (1 - masks) + images * masks
                     
                     # metrics
                     psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
 
-                    masks_pixel = torch.sum((masks_information[1]-masks_information[0])*(masks_information[3]-masks_information[2]))
-                    mae = ( torch.sum(torch.abs(images - outputs_merged)) / (torch.prod(images.shape)-masks_pixel) ).float()
+                    masks_pixel = torch.sum((masks_information[:,1]-masks_information[:,0])*(masks_information[:,3]-masks_information[:,2]))
+                    _bs, _ch, _h, _w = images.shape
+                    mae = ( torch.sum(torch.abs(images - outputs_merged)) / (_ch*(_bs*_h*_w-masks_pixel)) ).float()
                     logs.append(('psnr', psnr.item()))
                     logs.append(('mae', mae.item()))
 
@@ -171,10 +174,21 @@ class EdgeConnect():
                 # inpainting model
                 elif model == 3:
                     # train
-                    outputs, gen_loss, dis_loss, logs = self.inpaint_model.process_a(images, bound, masks)
+                    images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                    if self.config.GAN_LOSS == "nsgan":
+                        outputs, gen_loss, dis_loss, logs = self.inpaint_model.process_b(images, images_masked, masks)
+                    elif self.config.GAN_LOSS == "wgan":
+                        outputs, gen_loss, dis_loss, logs = self.inpaint_model.process_c(images, images_masked, masks)
+                    outputs_merged = outputs * (1 - masks) + images * masks
+                    
+                    # metrics
+                    psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
 
-                    # print('smt_onehs, outputs, masks =',smt_onehs.shape, outputs.shape, masks.shape)
-                    logs.append(('IOU', IOU.item()))
+                    masks_pixel = torch.sum((masks_information[:,1]-masks_information[:,0])*(masks_information[:,3]-masks_information[:,2]))
+                    _bs, _ch, _h, _w = images.shape
+                    mae = ( torch.sum(torch.abs(images - outputs_merged)) / (_ch*(_bs*_h*_w-masks_pixel)) ).float()
+                    logs.append(('psnr', psnr.item()))
+                    logs.append(('mae', mae.item()))
 
 
                     # backward
@@ -206,7 +220,8 @@ class EdgeConnect():
 
                 # sample model at checkpoints
                 if self.config.SAMPLE_INTERVAL and iteration % self.config.SAMPLE_INTERVAL == 0:
-                    self.sample()
+                    # print("Sampling Model, iteration =",iteration) # 2
+                    self.sample(it=iteration)
 
                 # evaluate model at checkpoints
                 if self.config.EVAL_INTERVAL and iteration % self.config.EVAL_INTERVAL == 0:
@@ -215,6 +230,7 @@ class EdgeConnect():
 
                 # save model at checkpoints
                 if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
+                    # print("Saving Model, iteration =",iteration)  #2
                     self.save()
 
         print('\nEnd training....')
@@ -237,19 +253,39 @@ class EdgeConnect():
 
         for items in val_loader:
             iteration += 1
-            images, semantics, unlbl_binary_mask, smt_onehs, masks = self.cuda(*items)
+            images, masks, masks_information = self.cuda(*items)
 
             if model == 1:
                 pass
             # inpainting model
-            elif model == 2 or model == 3:
-                # train
-                outputs, _, _, logs = self.semantic_model.process(images, bounds, masks)
-
+            elif model == 2:
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                with torch.no_grad():
+                    outputs, gen_loss, logs = self.inpaint_model.process_a(images, images_masked, masks)
+                
+                outputs_merged = outputs * (1 - masks) + images * masks
+                
                 # metrics
-                IOU = self.semanticacc(semantics * (1 - masks), outputs * (1 - masks))
-                logs.append(('IOU', IOU.item()))
-           
+                psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
+                mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(1-masks)).float()
+                logs.append(('psnr', psnr.item()))
+                logs.append(('mae', mae.item()))
+                logs.append(('eval_gen_loss',gen_loss.item()))
+
+            elif model == 3:
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                if self.config.GAN_LOSS == "nsgan":
+                    outputs, gen_loss, logs = self.inpaint_model.process_b(images, images_masked, masks)
+                elif self.config.GAN_LOSS == "wgan":
+                    outputs, gen_loss, logs = self.inpaint_model.process_c(images, images_masked, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+                
+                # metrics
+                psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
+                mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(1-masks)).float()
+                logs.append(('psnr', psnr.item()))
+                logs.append(('mae', mae.item()))
+                logs.append(('eval_gen_loss',gen_loss.item()))
             # joint model
             if model == 4:
                 pass
@@ -257,7 +293,7 @@ class EdgeConnect():
             logs = [("it", iteration), ] + logs
             progbar.add(len(images), values=logs)
 
-    def test(self):
+    def test(self):# cannot use, need to write testing process
         self.inpaint_model.eval()
 
         model = self.config.MODEL
@@ -272,22 +308,30 @@ class EdgeConnect():
         max_index = self.config.TEST_SAMPLE_NUMBER if self.config.TEST_SAMPLE_NUMBER is not -1 else 100000
         for items in test_loader: 
             name = self.test_dataset.load_name(index)
-            images, semantics, unlbl_binary_mask, smt_onehs, masks = self.cuda(*items)
+            images, masks, masks_information = self.cuda(*items)
             index += self.config.BATCH_SIZE
             
             if index > max_index:
                 break 
             
-            with torch.no_grad():
-                if model == 1:
-                    pass
-                elif model == 2 or model == 3:
-                    outputs = self.inpaint_model(images, bounds, masks)
-                    outputs_merged = outputs * (1 - masks) + images * masks
-                elif model == 4:
-                    outputs_merged = outputs * (1 - masks) + images * masks
-                else:
-                    print("test model error")
+        
+            if model == 1:
+                pass
+            elif model == 2:
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                outputs, _, logs = self.inpaint_model.process_a(images, images_masked, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            elif model == 3:
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                if self.config.GAN_LOSS == "nsgan":
+                    outputs, _, _, logs = self.inpaint_model.process_b(images, images_masked, masks)
+                if self.config.GAN_LOSS == "wgan":
+                    outputs, _, _, logs = self.inpaint_model.process_c(images, images_masked, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            elif model == 4:
+                outputs_merged = outputs * (1 - masks) + images * masks
+            else:
+                print("test model error")
 
             for i in range(outputs_merged.shape[0]):
                 output = self.smt_postprocess(outputs_merged)[i]
@@ -315,20 +359,30 @@ class EdgeConnect():
 
         model = self.config.MODEL
         items = next(self.sample_iterator)
-        # images, images_gray, semantics, smt_onehs, edges, masks = self.cuda(*items)
-        images, semantics, unlbl_binary_mask, smt_onehs, masks = self.cuda(*items)
-        with torch.no_grad():
-            # bound model
-            if model == 1:
-                pass
-            elif model == 2 or model == 3:
-                outputs = self.semantic_model(images, bounds, masks)
-                outputs_merged = outputs * (1 - masks) + images * masks
-            elif model == 4:
-                outputs = self.semantic_model(images, bounds, masks)
-                outputs_merged = outputs * (1 - masks) + images * masks
-            else:
-                print('sample model error')
+
+        images, masks, masks_information = self.cuda(*items)
+    
+        # bound model
+        if model == 1:
+            pass
+        elif model == 2:
+            inputs = images * masks
+            images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+            outputs, _, _ = self.inpaint_model.process_a(images, images_masked, masks)
+            outputs_merged = outputs * (1 - masks) + images * masks
+        elif model == 2 or model == 3:
+            inputs = images * masks
+            images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+            if self.config.GAN_LOSS == "nsgan":
+                outputs, _, _, _ = self.inpaint_model.process_b(images, images_masked, masks)
+            elif self.config.GAN_LOSS == "wgan":
+                outputs, _, _, _ = self.inpaint_model.process_c(images, images_masked, masks)
+            outputs_merged = outputs * (1 - masks) + images * masks
+        elif model == 4:
+            outputs = self.semantic_model(images, bounds, masks)
+            outputs_merged = outputs * (1 - masks) + images * masks
+        else:
+            print('sample model error')
 
         if it is not None:
             iteration = it
@@ -340,9 +394,10 @@ class EdgeConnect():
         if model == 2 or model == 3 or model == 4: 
             images = stitch_images(
                 self.postprocess(images),
-                self.smt_postprocess(inputs),
-                self.smt_postprocess(outputs),
-                self.smt_postprocess(outputs_merged),
+
+                self.postprocess(inputs),
+                self.postprocess(outputs),
+                self.postprocess(outputs_merged),
                 img_per_row = image_per_row
             )
  

@@ -60,67 +60,83 @@ class FeatureGenerator(BaseNetwork):
         self._r2 = _r2
         self.extractor = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, padding=2),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=2, dilation=2),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=4, dilation=4),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=8, dilation=8),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=16, dilation=16),#conv10
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1),
-            nn.ELU(True)
+            nn.ReLU(True),
+            # nn.ELU(True)
         )
 
         self.conv2d = nn.Sequential(
             nn.Conv2d(in_channels=64//self._r1//self._r2, out_channels=64*self._r1*self._r2, kernel_size=3, padding=1),
-            nn.ELU(True)
+            nn.ReLU(True),
+            # nn.ELU(True)
         )
 
         if init_weights:
             self.init_weights()
-
+        self.subpixel = nn.PixelShuffle(self._r1)
     def forward(self, x):#x is masked images #the time of enlargement is determined at first. 
         out = self.extractor(x)
-        _bs, _ch, _h, _w = out
+        # _bs, _ch, _h, _w = out.shape
         assert x.shape != out.shape
-        out_reshaped = subpixel(out, self._r1, self._r2)# (_h+bound_information[0]+bound_information[1])/_h, (_w+bound_information[2]+bound_information[3])/_w)
-        print('out_reshaped size:', out_reshaped.shape)
+        out_reshaped = self.subpixel(out)# (out, self._r1, self._r2)# (_h+bound_information[0]+bound_information[1])/_h, (_w+bound_information[2]+bound_information[3])/_w)
+        # print('out_reshaped size:', out_reshaped.shape)# [4,16,256,256]
         output = self.conv2d(out_reshaped)
 
         return output
@@ -135,56 +151,72 @@ class InpaintGenerator(BaseNetwork):
         
         self.inpainting_gen1 = nn.Sequential(
             nn.Conv2d(in_channels=input_ch, out_channels=64, kernel_size=5, padding=2),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=2, dilation=2),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
             
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=4, dilation=4),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=8, dilation=8),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=16, dilation=16),#conv10
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True))
+            nn.ReLU(True))
+            # nn.ELU(True))
         
 
         self.inpainting_gen2 = nn.Sequential(
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Upsample(scale_factor=2, mode='nearest'),#, align_corners=True),
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, padding=1),
-            nn.ELU(True),
+            nn.ReLU(True),
+            # nn.ELU(True),
 
             nn.Conv2d(in_channels=32, out_channels=3, kernel_size=3, padding=1))
 
@@ -195,25 +227,27 @@ class InpaintGenerator(BaseNetwork):
         xcat = torch.cat((x_fe, x_masked_img, mask), 1)
 
         xcat = self.inpainting_gen1(xcat)
-        xcat = context_normalization(xcat, mask,alpha=self.alpha)
+        xcat = context_normalization(xcat, mask, alpha=self.alpha)
         xcat = self.inpainting_gen2(xcat)
+        # xcat = torch.clamp(xcat,0,1)
         xcat = (torch.tanh(xcat) + 1) / 2
         return xcat
 
 
-def subpixel(x, r1, r2):
-    _bs, _ch0, _h0, _w0 = x.shape
-    _h = _h0 * r1
-    _w = _w0 * r2
+# def subpixel(x, r1, r2):
+#     _bs, _ch0, _h0, _w0 = x.shape
+#     _h = _h0 * r1
+#     _w = _w0 * r2
     
-    _ch = _ch0 // r1 // r2
-    x_out = torch.zeros((_bs, _ch, _h, _w)).to(x.device)
-    for k in range(_ch):
-        for i in range(_h):
-            for j in range(_w):
-                x_out[:,k,i,j] = x[:, k+_ch*r2*(i%r1)+_ch*(j%r2) ,i//r1, j//r2]  
+#     _ch = _ch0 // r1 // r2
+#     x_out = x.reshape((_bs, _ch, _h, _w))
+#     # x_out = torch.zeros((_bs, _ch, _h, _w)).to(x.device)
+#     # for k in range(_ch):
+#     #     for i in range(_h):
+#     #         for j in range(_w):
+#     #             x_out[:,k,i,j] = x[:, k+_ch*r2*(i%r1)+_ch*(j%r2) ,i//r1, j//r2]  
         
-    return x_out
+#     return x_out
 
 
 def context_normalization(x, mask, alpha=0.5, eps=1e-8): # known is 1 in my binary mask, but the opposite in Jiaya work. 
@@ -339,6 +373,7 @@ class GlobalLocalDiscriminator(BaseNetwork):
         )
 
         self.fc = nn.Linear(16*16*128, 1)
+        self.act = nn.Sigmoid()
 
         self.loc_discri = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, stride=2, padding=2),
@@ -350,8 +385,8 @@ class GlobalLocalDiscriminator(BaseNetwork):
             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=5, stride=2, padding=2),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Conv2d(in_channels=32, out_channels=1, kernel_size=3, padding=1)
-
+            nn.Conv2d(in_channels=256, out_channels=1, kernel_size=3, padding=1),
+            nn.Sigmoid()
         )
 
         self.downsample = nn.Upsample(scale_factor=1/8, mode='nearest')
@@ -360,18 +395,87 @@ class GlobalLocalDiscriminator(BaseNetwork):
             self.init_weights()
 
     
-    def forward(self, x, mask):
+    def forward(self, x, mask):#mask: unknown part should be 1. 
         glo_x = self.glo_discri(x)
         glo_x = glo_x.view(glo_x.size(0), -1)
         glo_x = self.fc(glo_x) # glo_x is the discri probability output
-        
+        glo_x = self.act(glo_x)
+
         loc_x = self.loc_discri(x)
 
         mask_local = self.maxpooling_downsampling(mask, ratio=8)
 
-        x = x * mask_local
+        loc_x = loc_x * mask_local
         
-        loc_x = torch.sum(x,dim=[1,2,3]) / torch.sum(mask_local,dim=[1,2,3])# glo_x is the discri probability output
+        loc_x = torch.sum(loc_x,dim=[2,3]) / torch.sum(mask_local,dim=[2,3])# glo_x is the discri probability output
+        # mask_local = tf.image.resize_nearest_neighbor(mask, [h, w], align_corners=True) # not necessary
+
+        return loc_x, glo_x, mask_local
+    
+    def maxpooling_downsampling(self, m, ratio=8):
+        iters = log2(ratio)
+        assert int(iters) == iters
+        for _ in range(int(iters)):
+            m = self.maxpooling(m)
+        return m
+
+
+
+
+
+class WGAN_GlobalLocalDiscriminator(BaseNetwork):
+    def __init__(self, init_weights=True):
+        super(WGAN_GlobalLocalDiscriminator, self).__init__()
+
+        self.glo_discri = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Conv2d(in_channels=256, out_channels=128, kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+
+        self.fc = nn.Linear(16*16*128, 1)
+
+        self.loc_discri = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=5, stride=2, padding=2),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Conv2d(in_channels=256, out_channels=1, kernel_size=3, padding=1),
+        )
+
+        self.downsample = nn.Upsample(scale_factor=1/8, mode='nearest')
+        self.maxpooling = torch.nn.MaxPool2d(2)
+        if init_weights:
+            self.init_weights()
+
+    
+    def forward(self, x, mask):#mask: unknown part should be 1. 
+        glo_x = self.glo_discri(x)
+        glo_x = glo_x.view(glo_x.size(0), -1)
+        glo_x = self.fc(glo_x) # glo_x is the discri probability output
+
+        loc_x = self.loc_discri(x)
+
+        mask_local = self.maxpooling_downsampling(mask, ratio=8)
+
+        loc_x = loc_x * mask_local
+        # print('mask_local.shape =', mask_local.shape) #[4, 1, 32, 32]
+
+        loc_x = torch.sum(loc_x,dim=[2,3]) / torch.sum(mask_local,dim=[2,3])# glo_x is the discri probability output
+        # print('loc_x.shape =', loc_x.shape) #[4, 1]
         # mask_local = tf.image.resize_nearest_neighbor(mask, [h, w], align_corners=True) # not necessary
 
         return loc_x, glo_x, mask_local
