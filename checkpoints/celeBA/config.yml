@@ -1,5 +1,5 @@
 MODE: 1             # 1: train, 2: test, 3: eval
-MODEL: 3            # 1:boundary model, 2:inpainting model_w_only_l1_loss, 3:inpainting model, 4:all_joint
+MODEL: 1            # 1:boundary model, 2:inpainting model_w_only_l1_loss, 3:inpainting model, 4:all_joint
 MASK: 1             # 1:random extrapolation mask  2:static extrapolation mask
 SEED: 10            # random seed
 GPU: [0]            # list of gpu ids
@@ -11,24 +11,28 @@ WIDTH_R2: 2         # the magnification of width in outpainting result
 # HEIGHT_OUTPUT_SIZE: 256     # height output size
 # WIDTH_AUGMENT_SIZE: 256     # width output size
 
-BOUNDING_MODEL_GENERATOR: 0 #
-INPAINTING_MODEL_GENERATOR: checkpoints/celeBA/saved_model/InpaintingModel/50001_wo_mrf/InpaintingModel_gen_iter_50001.pth #checkpoints/celeBA/saved_model/InpaintingModel/1001/InpaintingModel_gen_iter_1001.pth
-INPAINTING_MODEL_DISCRIMINATOR: 0 # checkpoints/celeBA/saved_model/InpaintingModel/500001/InpaintingModel_locglo_dis_iter_500001.pth
+BOUNDARY_MODEL_GENERATOR: 0 #
+INPAINTING_MODEL_GENERATOR: checkpoints/celeBA/saved_model/InpaintingModel/500001_wgan_perceptual_style_loss/InpaintingModel_gen_iter_500001.pth
+#checkpoints/celeBA/saved_model/InpaintingModel/1001/InpaintingModel_gen_iter_1001.pth
+INPAINTING_MODEL_DISCRIMINATOR: checkpoints/celeBA/saved_model/InpaintingModel/500001_wgan_perceptual_style_loss/InpaintingModel_locglo_dis_iter_500001.pth
 
 
 TRAIN_FLIST: ../datasets/celeba/celeba_train.flist
-VAL_FLIST: ../datasets/celeba/celeba_valid.flist
+VAL_FLIST: ../datasets/celeba/celeba_valid_simplified1.flist # ../datasets/celeba/celeba_valid_simplified1.flist
+SAMPLE_A_FLIST: ../datasets/celeba/celeba_valid_sample_A.flist
+SAMPLE_B_FLIST: ../datasets/celeba/celeba_valid_sample_B.flist
 TEST_FLIST: ../datasets/celeba/celeba_test.flist
 
 LR: 0.0001                    # learning rate #model IV use 2e-5
 D2G_LR: 0.1                   # discriminator/generator learning rate ratio
 BETA1: 0.0                    # adam optimizer beta1
 BETA2: 0.9                    # adam optimizer beta2
-BATCH_SIZE: 4                 # input batch size for training
+BATCH_SIZE: 8                 # input batch size for training
 INPUT_SIZE: 256               # input image size for training 0 for original size
 SIGMA: 2                      # standard deviation of the Gaussian filter used in Canny edge detector (0: random, -1: no edge)
-MAX_ITERS: 500001             # maximum number of iterations to train the model
+MAX_ITERS: 30001             # maximum number of iterations to train the model
 
+BOUNDARY_L1_LOSS_ALPHA: 1  
 WGAN_GP_LAMBDA: 1
 PRETRAIN_L1_ALPHA: 1.2
 RSV_LOSS_ALPHA: 4.2           # rsv loss
@@ -43,9 +47,9 @@ ADV_DISCRI_LOSS_ALPHA: 0.03 # 0.001
 GAN_LOSS: wgan               # nsgan | wgan
 GAN_POOL_SIZE: 0              # fake images pool size
 
-SAVE_INTERVAL: 10000          # how many iterations to wait before saving model (0: never)
-SAMPLE_INTERVAL: 10000        # how many iterations to wait before sampling (0: never)
+SAVE_INTERVAL: 5000          # how many iterations to wait before saving model (0: never)
+SAMPLE_INTERVAL: 5000        # how many iterations to wait before sampling (0: never)
 SAMPLE_SIZE: 12               # number of images to sample
-EVAL_INTERVAL: 0              # how many iterations to wait before model evaluation (0: never)
+EVAL_INTERVAL: 5000              # how many iterations to wait before model evaluation (0: never)
 LOG_INTERVAL: 100             # how many iterations to wait before logging training status (0: never)
 TEST_SAMPLE_NUMBER: 20        # how many testing sample should be tested (-1: no limit)

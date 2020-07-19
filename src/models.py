@@ -4,10 +4,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.autograd as autograd
 # from torch.optim import lr_scheduler
-from .networks import FeatureGenerator, InpaintGenerator, GlobalLocalDiscriminator, WGAN_GlobalLocalDiscriminator
-from .loss import AdversarialLoss, RSV_Loss, IDMRFLoss, PerceptualLoss, StyleLoss, random_interpolates, relative_spatial_variant_mask
+from .networks import BoundaryLocalizer, FeatureGenerator, InpaintGenerator, GlobalLocalDiscriminator, WGAN_GlobalLocalDiscriminator
+from .loss import AdversarialLoss, RSV_Loss, IDMRFLoss, PerceptualLoss, StyleLoss, random_interpolates, relative_spatial_variant_mask, threshold_l1_loss
 from collections import OrderedDict
 from .utils import image_cropping
+from .resnet import resnet18
 
 def isNaN(num):
     return num != num
@@ -36,8 +37,14 @@ class BaseModel(nn.Module):
         #Load generator model
         if len(self.config.GPU) == 1: 
             if torch.cuda.is_available():
-                if self.name == 'BoundingModel':
-                    pass
+                if self.name == 'BoundaryModel':
+                    print('Loading %s generator...' % self.name)
+                    data = torch.load(self.config.BOUNDARY_MODEL_GENERATOR)
+                    self.feat_extractor.load_state_dict(data['feat_extractor'])
+                    self.localizer.load_state_dict(data['localizer'])
+                    self.iteration = data['iteration']
+                    print('initial iteration:',self.iteration)
+                    
                     # data = torch.load(self.config.BOUNDING_MODEL_GENERATOR)
                     # self.feat_generator.load_state_dict(data['feat_generator'])
                     # self.iteration = data['iteration']
@@ -138,11 +145,109 @@ class BaseModel(nn.Module):
                 # 'global_discriminator': self.global_discriminator.state_dict()
                 # }, os.path.join(self.save_model_path, self.iteration, self.name+'_global_dis_iter_'+str(self.iteration)+'.pth'))
 
-        elif self.name == 'BoundingModel':##TODO
+        elif self.name == 'BoundaryModel':
+            os.makedirs(os.path.join(self.config.PATH,'saved_model', self.name, str(self.iteration)), exist_ok=True)
             torch.save({
             'iteration': self.iteration,
-            'generator': self.generator.state_dict()
-            }, os.path.join(self.save_model_path, self.iteration, self.name+'_gen_iter_'+str(self.iteration)+'.pth'))
+            'feat_extractor': self.feat_extractor.state_dict(),
+            'localizer': self.localizer.state_dict()
+            }, os.path.join(self.save_model_path, str(self.iteration), self.name+'_iter_'+str(self.iteration)+'.pth'))
+
+
+
+
+class BoundaryModel(BaseModel):
+    def __init__(self, config):
+        super(BoundaryModel, self).__init__('BoundaryModel', config)
+        self.gpu_device = config.DEVICE
+        # generator input: [rgb(3)]
+        feat_extractor = resnet18(pretrained=True)
+        localizer = BoundaryLocalizer()#InpaintGenerator(input_ch=64*config.HEIGHT_R1*config.WIDTH_R2+4)
+        
+        # if len(config.GPU) > 1:
+        #     generator = nn.DataParallel(generator, config.GPU)
+        thres_l1_loss = threshold_l1_loss(_th=10/128) 
+        # l1_loss = nn.L1Loss()
+        # mse_loss = nn.MSELoss()
+
+        self.add_module('feat_extractor', feat_extractor)
+        self.add_module('localizer', localizer)
+        # self.add_module('mse_loss', mse_loss)
+        # self.add_module('l1_loss', l1_loss)
+        self.add_module('thres_l1_loss', thres_l1_loss)
+        self.boundary_optimizer = optim.Adam(
+            params= list(feat_extractor.parameters()) + list(localizer.parameters()),
+            lr=float(config.LR),
+            betas=(config.BETA1, config.BETA2)
+        )
+        # self.gen_optimizer = optim.SGD(list(feat_generator.parameters()) + list(inp_generator.parameters()), 
+        #                                 lr=0.0001, momentum=0.9)
+        # self.gen_scheduler = lr_scheduler.StepLR(self.gen_optimizer, 100, gamma=0.999)
+        
+    def process(self, images, gt_up_left, train=True):# training process 
+        #images:256*256, images_masked:128*128, masks:256*256
+        if train is True:
+            self.iteration += 1
+
+        # zero optimizers
+        self.boundary_optimizer.zero_grad()
+        # process outputs
+        outputs = self(images)
+
+        loss = 0
+        norm_gt_up_left = gt_up_left / 128
+        # norm_gt_up_left = norm_gt_up_left.float()
+        # mse_loss = self.mse_loss(outputs, norm_gt_up_left) * self.config.BOUNDARY_MSE_LOSS_ALPHA
+        # loss += mse_loss
+        thres_l1_loss = self.thres_l1_loss(outputs, norm_gt_up_left) * self.config.BOUNDARY_L1_LOSS_ALPHA
+        loss += thres_l1_loss
+        
+        
+        # if isNaN(mse_loss):
+        #     print("NAN Warning!")
+        #     if not tensor_isNaN(outputs):
+        #         print("From outputs!")
+        #     if not tensor_isNaN(images):
+        #         print("From images!")
+        #     if not tensor_isNaN(masks):
+        #         print("From masks!")
+        # create logs
+        logs = [
+            # ("mse_loss", mse_loss.item())
+            ("thres_l1_loss", thres_l1_loss.item())
+        ]
+        
+        return outputs, loss, logs
+
+    def forward(self, images):#, gt_up, gt_left):# images_masked:[128,128]
+        feat_ops = self.feat_extractor(images)#(images_masked)
+        outputs = self.localizer(feat_ops)
+        return outputs
+        
+    def backward(self, loss=None):
+        if loss is not None:
+            loss.backward()
+            # torch.nn.utils.clip_grad_value_(list(self.feat_generator.parameters()) + list(self.inp_generator.parameters()), 2)
+            self.boundary_optimizer.step()
+            # self.gen_scheduler.step()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class InpaintingModel(BaseModel):
@@ -198,9 +303,10 @@ class InpaintingModel(BaseModel):
         )
         # self.dis_scheduler = lr_scheduler.StepLR(self.dis_optimizer, 100, gamma=0.999) # 0.999^4500=0.01108
         self.mseloss = nn.MSELoss()
-    def process_a(self, images, images_masked, masks):# training process 
+    def process_a(self, images, images_masked, masks, train=True):# training process 
         #images:256*256, images_masked:128*128, masks:256*256
-        self.iteration += 1
+        if train is True:
+            self.iteration += 1
 
         # zero optimizers
         self.gen_optimizer.zero_grad()
@@ -233,8 +339,9 @@ class InpaintingModel(BaseModel):
         
         return outputs, gen_loss, logs
 
-    def process_b(self, images, images_masked, masks):
-        self.iteration += 1
+    def process_b(self, images, images_masked, masks, train=True):
+        if train is True:
+            self.iteration += 1
 
         # zero optimizers
         self.gen_optimizer.zero_grad()
@@ -320,9 +427,10 @@ class InpaintingModel(BaseModel):
 
 
 
-    def process_c(self, images, images_masked, masks): 
+    def process_c(self, images, images_masked, masks, train=True): 
         # wgan
-        self.iteration += 1
+        if train is True:
+            self.iteration += 1
 
         # zero optimizers
         self.gen_optimizer.zero_grad()

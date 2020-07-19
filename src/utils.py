@@ -27,15 +27,15 @@ def create_extrapolation_mask(height, width, crop_pos=None):
         # print('mask_inf:',mask_inf)
     return mask, mask_inf
 
-def image_cropping(images, mask_inf): #inputs are all tensors. # images: [bs,3,256,256], mask_inf:[bs,4]##bug????
+def image_cropping(images, mask_inf): #inputs are all tensors. # images: [bs,3,256,256], mask_inf:[bs,4]
     _bs, _, _h, _w = images.shape
     # print("mask_inf:",mask_inf)
     cropped_img = []
     for i in range(_bs):
-        cropped_img.append(images[i:i+1, :, mask_inf[i,0]:mask_inf[i,1], mask_inf[i,2]:mask_inf[i,3]])
+        cropped_img.append(images[i:i+1, :, mask_inf[i,0].int():mask_inf[i,1].int(), mask_inf[i,2].int():mask_inf[i,3].int()])
     
     new_images = torch.cat((cropped_img),0)
-    # print("new_images.shape:", new_images.shape)
+    print("image_cropping_new_images.shape:", new_images.shape)
     return new_images
 
 def image_padding(images, up=32, bot=32, left=32, right=32): #inputs are all tensors. # images: [bs,3,?,?] -> [bs,3,256,256]

@@ -226,7 +226,15 @@ class AdversarialLoss(nn.Module):
                 loss = self.criterion(outputs, labels) / outputs.shape[0]
             return loss
 
-
+class threshold_l1_loss(nn.Module):
+    def __init__(self, _th=5/128):
+        super(threshold_l1_loss, self).__init__()
+        self._th = _th
+    def __call__(self, pred, gt):
+        diff = torch.abs(pred-gt)
+        diff[diff < self._th] = 0
+        th_l1_loss = torch.sum(diff) / diff.shape[0]
+        return th_l1_loss
 
 def gradients_penalty(x, y, mask=None, norm=1.):
     """

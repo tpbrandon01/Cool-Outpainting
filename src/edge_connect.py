@@ -4,8 +4,8 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader
 from .dataset import Dataset
-from .models import InpaintingModel#CourseInpaintingModel, RefinedInpaintingModel
-from .utils import Progbar, create_dir, stitch_images, imsave, image_cropping
+from .models import InpaintingModel, BoundaryModel#CourseInpaintingModel, RefinedInpaintingModel
+from .utils import Progbar, create_dir, stitch_images, imsave, image_cropping, image_padding
 from .metrics import PSNR, EdgeAccuracy, SemanticAccuracy
 from collections import OrderedDict
 from scipy.io import loadmat
@@ -18,6 +18,7 @@ class EdgeConnect():
 
         if config.MODEL == 1:
             model_name = 'boundary-prediction'
+            self.bound_model = BoundaryModel(config).to(config.DEVICE)
         elif config.MODEL == 2:
             model_name = 'wide-exp-only-l1'
         elif config.MODEL == 3:
@@ -34,12 +35,18 @@ class EdgeConnect():
         
         # test mode
         if self.config.MODE == 2:
-            self.test_dataset = Dataset(config, config.TEST_FLIST, augment=False, training=False)
+            self.test_dataset = Dataset(config, config.TEST_FLIST, augment=False, mask_type=config.MASK)
         else:
-            self.train_dataset = Dataset(config, config.TRAIN_FLIST, augment=True, training=True)
-            self.val_dataset = Dataset(config, config.VAL_FLIST, augment=False, training=True)
-            self.sample_iterator = self.val_dataset.create_iterator(config.SAMPLE_SIZE)
-
+            self.train_dataset = Dataset(config, config.TRAIN_FLIST, augment=True, mask_type=config.MASK)
+            if config.MODEL == 1:
+                self.val_dataset = Dataset(config, config.VAL_FLIST, augment=False, mask_type=config.MASK)
+            else:
+                self.val_dataset = Dataset(config, config.VAL_FLIST, augment=False, mask_type=2)
+            self.sample_dataset1 = Dataset(config, config.SAMPLE_A_FLIST, augment=False, mask_type=2)
+            self.sample_iterator1 = self.sample_dataset1.create_iterator(config.SAMPLE_SIZE)
+            self.sample_dataset2 = Dataset(config, config.SAMPLE_B_FLIST, augment=False, mask_type=1)
+            self.sample_iterator2 = self.sample_dataset2.create_iterator(config.SAMPLE_SIZE)
+    
         self.samples_path = os.path.join(config.PATH, 'samples')
         self.results_path = os.path.join(config.PATH, 'results')
 
@@ -84,8 +91,7 @@ class EdgeConnect():
 
     def save(self):
         if self.config.MODEL == 1:
-            pass
-            # self.edge_model.save()
+            self.bound_model.save()
         elif self.config.MODEL == 2:
             self.inpaint_model.save(save_discri=False)
         elif self.config.MODEL == 3:
@@ -137,18 +143,18 @@ class EdgeConnect():
                 # print(masks_information)
                 # edge model
                 if model == 1:
-                    pass
                     # train
-                    # outputs, gen_loss, dis_loss, logs = self.edge_model.process(images_gray, edges, masks)
+                    outputs, loss, logs = self.bound_model.process(images, masks_information[:,(0,2)])
 
-                    # metrics
-                    # precision, recall = self.edgeacc(edges * (1 - masks), outputs * (1 - masks))
-                    # logs.append(('precision', precision.item()))
-                    # logs.append(('recall', recall.item()))
+                    temp = outputs * 128
+                    pixelerror_h = torch.sum(torch.abs(temp[:,0] - masks_information[:,0]))/masks_information.shape[0]
+                    pixelerror_v = torch.sum(torch.abs(temp[:,1] - masks_information[:,2]))/masks_information.shape[0]
+                    logs.append(('pixelerror_h', pixelerror_h.item()))
+                    logs.append(('pixelerror_v', pixelerror_v.item()))
 
                     # backward
-                    # self.edge_model.backward(gen_loss, dis_loss)
-                    # iteration = self.edge_model.iteration
+                    self.bound_model.backward(loss)
+                    iteration = self.bound_model.iteration
                 # inpainting model
                 elif model == 2:
                     # train
@@ -249,48 +255,56 @@ class EdgeConnect():
         self.inpaint_model.eval()
 
         progbar = Progbar(total, width=20, stateful_metrics=['it'])
-        iteration = 0
+        val_iteration = 0
 
         for items in val_loader:
-            iteration += 1
+            val_iteration += 1
             images, masks, masks_information = self.cuda(*items)
-
+            
             if model == 1:
-                pass
+                with torch.no_grad():
+                    outputs, gen_loss, logs = self.bound_model.process(images, masks_information[:,(0,2)], train=False)
+                
+                temp = outputs * 128
+                pixelerror_h = torch.sum(torch.abs(temp[:,0] - masks_information[:,0]))/masks_information.shape[0]
+                pixelerror_v = torch.sum(torch.abs(temp[:,1] - masks_information[:,2]))/masks_information.shape[0]
+                logs.append(('eval_pixelerror_h', pixelerror_h.item()))
+                logs.append(('eval_pixelerror_v', pixelerror_v.item()))
+
             # inpainting model
             elif model == 2:
                 images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
                 with torch.no_grad():
-                    outputs, gen_loss, logs = self.inpaint_model.process_a(images, images_masked, masks)
+                    outputs, gen_loss, logs = self.inpaint_model.process_a(images, images_masked, masks, train=False)
                 
                 outputs_merged = outputs * (1 - masks) + images * masks
                 
                 # metrics
                 psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                 mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(1-masks)).float()
-                logs.append(('psnr', psnr.item()))
-                logs.append(('mae', mae.item()))
+                logs.append(('eval_psnr', psnr.item()))
+                logs.append(('eval_mae', mae.item()))
                 logs.append(('eval_gen_loss',gen_loss.item()))
 
             elif model == 3:
                 images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
                 if self.config.GAN_LOSS == "nsgan":
-                    outputs, gen_loss, logs = self.inpaint_model.process_b(images, images_masked, masks)
+                    outputs, gen_loss, logs = self.inpaint_model.process_b(images, images_masked, masks, train=False)
                 elif self.config.GAN_LOSS == "wgan":
-                    outputs, gen_loss, logs = self.inpaint_model.process_c(images, images_masked, masks)
+                    outputs, gen_loss, dis_loss, logs = self.inpaint_model.process_c(images, images_masked, masks, train=False)
                 outputs_merged = outputs * (1 - masks) + images * masks
                 
                 # metrics
                 psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
                 mae = (torch.sum(torch.abs(images - outputs_merged)) / torch.sum(1-masks)).float()
-                logs.append(('psnr', psnr.item()))
-                logs.append(('mae', mae.item()))
+                logs.append(('eval_psnr', psnr.item()))
+                logs.append(('eval_mae', mae.item()))
                 logs.append(('eval_gen_loss',gen_loss.item()))
             # joint model
             if model == 4:
                 pass
 
-            logs = [("it", iteration), ] + logs
+            logs = [("it", val_iteration), ] + logs
             progbar.add(len(images), values=logs)
 
     def test(self):# cannot use, need to write testing process
@@ -351,38 +365,46 @@ class EdgeConnect():
 
     def sample(self, it=None):
         # do not sample when validation set is empty
-        if len(self.val_dataset) == 0:
-            print("Validation set is empty...")
+        if len(self.sample_dataset1) == 0:
+            print("Sample set A is empty...")
             return
 
         self.inpaint_model.eval()
 
         model = self.config.MODEL
-        items = next(self.sample_iterator)
+        # sample fixed samples
+        items = next(self.sample_iterator1)
 
         images, masks, masks_information = self.cuda(*items)
     
-        # bound model
-        if model == 1:
-            pass
-        elif model == 2:
-            inputs = images * masks
-            images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
-            outputs, _, _ = self.inpaint_model.process_a(images, images_masked, masks)
-            outputs_merged = outputs * (1 - masks) + images * masks
-        elif model == 2 or model == 3:
-            inputs = images * masks
-            images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
-            if self.config.GAN_LOSS == "nsgan":
-                outputs, _, _, _ = self.inpaint_model.process_b(images, images_masked, masks)
-            elif self.config.GAN_LOSS == "wgan":
-                outputs, _, _, _ = self.inpaint_model.process_c(images, images_masked, masks)
-            outputs_merged = outputs * (1 - masks) + images * masks
-        elif model == 4:
-            outputs = self.semantic_model(images, bounds, masks)
-            outputs_merged = outputs * (1 - masks) + images * masks
-        else:
-            print('sample model error')
+        with torch.no_grad():
+            if model == 1:# bound model
+                inputs = images * masks
+                images_masked = image_cropping(images, masks_information)
+                outputs, _, _ = self.bound_model.process(images, masks_information[:,(0,2)], train=False)
+                temp = outputs * 128
+                aug_img = torch.zeros((images.shape[0], 3, 256, 256))
+                for i in range(outputs.shape[0]):
+                    aug_img[i,:,temp[i,0].int():temp[i,0].int()+128,temp[i,1].int():temp[i,1].int()+128] = images_masked[i]
+                
+            elif model == 2:
+                inputs = images * masks
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                outputs = self.inpaint_model(images, images_masked, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            elif model == 3:
+                inputs = images * masks
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                if self.config.GAN_LOSS == "nsgan":
+                    outputs = self.inpaint_model(images, images_masked, masks)
+                elif self.config.GAN_LOSS == "wgan":
+                    outputs = self.inpaint_model(images, images_masked, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            elif model == 4:
+                outputs = self.semantic_model(images, bounds, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            else:
+                print('sample model error')
 
         if it is not None:
             iteration = it
@@ -390,8 +412,16 @@ class EdgeConnect():
         image_per_row = 2
         if self.config.SAMPLE_SIZE <= 6:
             image_per_row = 1
-            
-        if model == 2 or model == 3 or model == 4: 
+
+        if model == 1:
+            images = stitch_images(
+                self.postprocess(images),
+                self.postprocess(inputs),
+                self.postprocess(aug_img),
+                img_per_row = image_per_row
+            )
+  
+        elif model == 2 or model == 3 or model == 4: 
             images = stitch_images(
                 self.postprocess(images),
 
@@ -402,10 +432,81 @@ class EdgeConnect():
             )
  
         path = os.path.join(self.samples_path, self.model_name)
-        name = os.path.join(path, str(iteration).zfill(5) + ".png")
+        name = os.path.join(path, "FixedImg_"+str(iteration).zfill(5) + ".png")
+        
         create_dir(path)
-        print('\nsaving sample ' + name)
+        print('\nSaving Fixed Sample ' + name)
         images.save(name)
+        
+
+
+        # sample random samples
+        if len(self.sample_dataset2) == 0:
+            print("Sample set B is empty...")
+            return
+
+        items = next(self.sample_iterator2)
+
+        images, masks, masks_information = self.cuda(*items)
+    
+        with torch.no_grad():
+            if model == 1:# bound model
+                inputs = images * masks
+                images_masked = image_cropping(images, masks_information)
+                outputs = self.bound_model(images)
+                temp = outputs * 128
+                aug_img = torch.zeros((images.shape[0], 3, 256, 256))
+                for i in range(outputs.shape[0]):
+                    aug_img[i,:,temp[i,0].int():temp[i,0].int()+128,temp[i,1].int():temp[i,1].int()+128] = images_masked[i]
+            elif model == 2:
+                inputs = images * masks
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                outputs = self.inpaint_model(images, images_masked, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            elif model == 3:
+                inputs = images * masks
+                images_masked = image_cropping(images, masks_information)# images: 256*256, images_masked:128*128
+                if self.config.GAN_LOSS == "nsgan":
+                    outputs = self.inpaint_model(images, images_masked, masks)
+                elif self.config.GAN_LOSS == "wgan":
+                    outputs = self.inpaint_model(images, images_masked, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            elif model == 4:
+                outputs = self.semantic_model(images, bounds, masks)
+                outputs_merged = outputs * (1 - masks) + images * masks
+            else:
+                print('sample model error')
+
+        if it is not None:
+            iteration = it
+
+        image_per_row = 2
+        if self.config.SAMPLE_SIZE <= 6:
+            image_per_row = 1
+
+        if model == 1:
+            images = stitch_images(
+                self.postprocess(images),
+                self.postprocess(inputs),
+                self.postprocess(aug_img),
+                img_per_row = image_per_row
+            )    
+        elif model == 2 or model == 3 or model == 4: 
+            images = stitch_images(
+                self.postprocess(images),
+
+                self.postprocess(inputs),
+                self.postprocess(outputs),
+                self.postprocess(outputs_merged),
+                img_per_row = image_per_row
+            )
+ 
+        path = os.path.join(self.samples_path, self.model_name)
+        name = os.path.join(path, "RandomImg_"+str(iteration).zfill(5) + ".png")
+        
+        print('\nSaving Random Sample ' + name)
+        images.save(name)
+
 
     def log(self, logs):
         with open(self.log_file, 'a') as f:

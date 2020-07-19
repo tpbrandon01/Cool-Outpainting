@@ -8,6 +8,7 @@ import torchvision.transforms.functional as F
 from torch.utils.data import DataLoader
 from PIL import Image
 from scipy.misc.pilutil import imread, imsave
+# from imageio import imread, imsave
 from skimage.feature import canny
 from skimage.color import rgb2gray, gray2rgb
 from .utils import create_extrapolation_mask
@@ -15,14 +16,14 @@ np.set_printoptions(threshold=10000000)
 import time
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, config, flist, augment=True, training=True):
+    def __init__(self, config, flist, augment=True, mask_type = None):
         super(Dataset, self).__init__()
         self.augment = augment
-        self.training = training
         self.data = self.load_flist(flist)
         self.loaded_img_size = config.LOADED_IMAGE_SIZE
-        
-        self.mask = config.MASK
+        self.mask = mask_type
+        if mask_type is None:
+            self.mask = config.MASK
         
         # in test mode, there's a one-to-one relationship between mask and image
         # masks are loaded non random
@@ -77,7 +78,7 @@ class Dataset(torch.utils.data.Dataset):
         
         # print('Get dataset item...', torch.from_numpy(unlbl_binary_mask).float().shape, torch.from_numpy(unlbl_binary_mask).float())
         # return self.to_tensor(img), self.to_tensor(img_gray), (torch.from_numpy(semantic)).float(), (torch.from_numpy(unlbl_binary_mask)).float(), (torch.from_numpy(smt_one_hot)).float(), self.to_tensor(edge), (torch.from_numpy(mask)).float()
-        return self.to_tensor(img), (torch.from_numpy(mask)).float(), torch.from_numpy(mask_information).int() 
+        return self.to_tensor(img), (torch.from_numpy(mask)).float(), torch.from_numpy(mask_information).float() 
         # [3, 256, 256], [1, 256, 256], [1, 256, 256], [20, 256, 256],  [1, 256, 256]
     
 
@@ -104,9 +105,9 @@ class Dataset(torch.utils.data.Dataset):
         # print('load_mask, img.shape =', img.shape)#(256, 256, 3)
         mask_type = self.mask
         if mask_type == 1:
-            top = np.random.randint(16, 113)#128-16
+            top = np.random.randint(0, 128)#128-16
             bot = 128+top
-            left = np.random.randint(16, 113)#128-16
+            left = np.random.randint(0, 128)#128-16
             right = 128+left
             mask, mask_inf = create_extrapolation_mask(size, size, crop_pos=(top, bot, left, right))
             

@@ -1,6 +1,18 @@
 import torch
 import torch.nn as nn
 from math import log2
+class BoundaryLocalizer(nn.Module):
+    def __init__(self):
+        super(BoundaryLocalizer, self).__init__()
+        self.localizer = nn.Sequential(
+        nn.Linear(512, 2),
+        # nn.Linear(2048, 2),#resnet152
+        nn.Sigmoid())   
+    def forward(self, x):
+        # print('before localizer, x.shape:',x.shape) # [bs, 2048]
+        x = self.localizer(x)
+        # print('after localizer, x.shape:',x.shape) # [bs, 2]
+        return x
 class BaseNetwork(nn.Module):
     def __init__(self):
         super(BaseNetwork, self).__init__()
